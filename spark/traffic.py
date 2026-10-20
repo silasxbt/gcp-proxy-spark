@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import time
 
@@ -35,7 +36,18 @@ def nft_json():
         if "No such file or directory" in r.stderr:
             return None
         raise RuntimeError("Cannot read owned nftables table; check CAP_NET_ADMIN/kernel")
-    return json.loads(r.stdout)
+    doc = json.loads(r.stdout)
+    table = next((x["table"] for x in doc["nftables"] if "table" in x), None)
+    if table is not None and "comment" not in table:
+        # nft 1.0.6 (Debian 12) omits table comments in JSON, but retains them
+        # in its native text output. Only accept the top-level ownership marker.
+        plain = subprocess.run(["nft", "list", "table", "inet", TABLE],
+                               capture_output=True, text=True)
+        if plain.returncode:
+            raise RuntimeError("Cannot verify nftables table ownership")
+        if re.match(r'^table inet proxy_spark \{\s*comment "gcp-proxy-spark-owned-v1"\s', plain.stdout):
+            table["comment"] = "gcp-proxy-spark-owned-v1"
+    return doc
 
 
 def ensure_counters(m):

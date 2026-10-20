@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from spark import deploy
 from spark.core import atomic_json
@@ -12,6 +13,16 @@ from tests.helpers import fixture
 
 
 class DeployTests(unittest.TestCase):
+    def test_debian12_table_comment_fallback_is_top_level_only(self):
+        from spark.traffic import nft_json
+        doc = json.dumps({"nftables": [{"table": {"family": "inet", "name": "proxy_spark", "handle": 4}}]})
+        for text, owned in [('table inet proxy_spark {\n\tcomment "gcp-proxy-spark-owned-v1"\n}', True),
+                            ('table inet proxy_spark {\n chain x { comment "gcp-proxy-spark-owned-v1"\n}}', False)]:
+            with patch('spark.traffic.subprocess.run', side_effect=[SimpleNamespace(returncode=0, stdout=doc),
+                       SimpleNamespace(returncode=0, stdout=text)]):
+                result = nft_json()
+                self.assertEqual('comment' in result['nftables'][0]['table'], owned)
+
     def test_reviewed_coexistence_requires_fingerprint_and_disjoint_ports(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "legacy.json"
