@@ -1,6 +1,7 @@
 """Conservative local-host installer. Never invokes gcloud or provisions resources."""
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,20 @@ SYSTEMD = Path("/etc/systemd/system")
 UNITS = ("spark-proxy.service", "spark-web.service", "spark-traffic.service",
          "spark-renew.service", "spark-renew.timer", "spark-cert-check.service", "spark-cert-check.timer")
 MARKER = "# Managed by gcp-proxy-spark v1"
+
+
+def legacy_issues(m, path=Path("/etc/s-box/sb.json")):
+    if not path.exists():
+        return ["Reviewed legacy config is missing"] if m.get("legacy_config_sha256") else []
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != m.get("legacy_config_sha256"):
+        return ["Existing sing-box-yg deployment: explicitly review coexistence and pin its config SHA256"]
+    try:
+        legacy_ports = {n["listen_port"] for n in json.loads(raw)["inbounds"] if "listen_port" in n}
+    except (ValueError, KeyError, TypeError):
+        return ["Cannot inspect reviewed legacy listener configuration"]
+    required = {80, 443, m.get("exporter_port", 9105)} | {n["port"] for n in selected(m)}
+    return ["Legacy listener configuration overlaps Spark ports"] if legacy_ports & required else []
 
 
 def run(args, **kw):
@@ -52,8 +67,7 @@ def inspect(m):
         issues.append("Expected Certbot 5.4.0")
     if not (BASE / "venv/bin/python").exists():
         issues.append("Missing runtime venv")
-    if Path("/etc/s-box/sb.json").exists():
-        issues.append("Existing sing-box-yg deployment found: in-place adoption is not supported")
+    issues.extend(legacy_issues(m))
     if CURRENT.exists() and (not CURRENT.is_symlink() or not (CURRENT / "OWNED").is_file()):
         issues.append("Unowned current release")
     if NGINX.exists() and not NGINX.read_text().startswith(MARKER):
@@ -82,7 +96,7 @@ def inspect(m):
         sockets = run(["ss", "-H", "-lntup"]).stdout
         old = load(CURRENT / "manifest.json") if CURRENT.exists() and (CURRENT / "manifest.json").exists() else None
         allowed = {n["port"] for n in selected(old)} if old else set()
-        ports = {80, 443, 9105} | {n["port"] for n in selected(m)}
+        ports = {80, 443, m.get("exporter_port", 9105)} | {n["port"] for n in selected(m)}
         for line in sockets.splitlines():
             cols = line.split()
             match = re.search(r":(\d+)$", cols[4]) if len(cols) > 4 else None
@@ -90,7 +104,7 @@ def inspect(m):
             if port not in ports:
                 continue
             owned = old and ((port in (80, 443) and '"nginx"' in line)
-                             or (port == 9105 and active("spark-web"))
+                             or (port == old.get("exporter_port", 9105) and active("spark-web"))
                              or (port in allowed and active("spark-proxy")))
             if not owned:
                 issues.append(f"Occupied port: {port}; no process will be stopped automatically")
@@ -133,10 +147,11 @@ def nginx_config(m, tls):
  }
 }
 """
-    return head + http + https
+    return head + http + https.replace("127.0.0.1:9105", f'127.0.0.1:{m.get("exporter_port", 9105)}')
 
 
-def unit_files():
+def unit_files(m=None):
+    port = (m or {}).get("exporter_port", 9105)
     python = f"{BASE}/venv/bin/python"
     manifest = f"{CURRENT}/manifest.json"
     common = f"""[Service]
@@ -158,7 +173,7 @@ PrivateTmp=true
         elif unit == "spark-web.service":
             # DynamicUser gets its manifest as a systemd credential, not world-readable config.
             extra = f"DynamicUser=true\nLoadCredential=manifest:{manifest}\n"
-            command = f"{python} -m spark.cli serve --manifest %d/manifest --state {STATE}/traffic.json"
+            command = f"{python} -m spark.cli serve --manifest %d/manifest --state {STATE}/traffic.json --port {port}"
         else:
             extra = "CapabilityBoundingSet=\n"
         files[unit] = MARKER + "\n[Unit]\nDescription=Spark " + unit + "\nAfter=network-online.target\nWants=network-online.target\n" + common + extra + f"ExecStart={command}\nRestart=on-failure\nRestartSec=5\n[Install]\nWantedBy=multi-user.target\n"
@@ -207,7 +222,7 @@ def health(m):
     host = f'[{m["address"]}]' if ":" in m["address"] else m["address"]
     run(["curl", "--fail", "--silent", "--show-error", "--noproxy", "*", "--connect-to",
          f"{host}:443:127.0.0.1:443", f"https://{host}/api/traffic"], timeout=15)
-    with build_opener(ProxyHandler({})).open("http://127.0.0.1:9105/api/traffic", timeout=5) as r:
+    with build_opener(ProxyHandler({})).open(f'http://127.0.0.1:{m.get("exporter_port", 9105)}/api/traffic', timeout=5) as r:
         report = json.load(r)
     if report["stale"] or not report["service_active"]:
         raise RuntimeError("Accounting/service is not healthy")
@@ -287,7 +302,7 @@ def _apply(m, email):
         write_text(NGINX, nginx_config(m, True))
         run(["nginx", "-t"])
         write_text(release / "nginx.conf", nginx_config(m, True))
-        for unit, body in unit_files().items():
+        for unit, body in unit_files(m).items():
             write_text(release / "units" / unit, body)
             write_text(SYSTEMD / unit, body)
         # Snapshot old counters before changing ports/configs.

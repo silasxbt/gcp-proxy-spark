@@ -57,6 +57,11 @@ def validate(m):
     if not isinstance(m.get("region"), str) or not 1 <= len(m["region"]) <= 40:
         raise ValueError("region must be 1..40 characters")
     ids, ports = set(), set()
+    exporter_port = m.get("exporter_port", 9105)
+    if type(exporter_port) is not int or not 1024 <= exporter_port <= 65535:
+        raise ValueError("Invalid exporter_port")
+    if "legacy_config_sha256" in m and not re.fullmatch(r"[a-f0-9]{64}", m["legacy_config_sha256"]):
+        raise ValueError("Invalid reviewed legacy config fingerprint")
     if not m.get("nodes"):
         raise ValueError("At least one node is required")
     for n in m["nodes"]:
@@ -67,8 +72,8 @@ def validate(m):
             raise ValueError("Duplicate node id/port")
         ids.add(n["id"])
         ports.add(n.get("port"))
-        if type(n.get("port")) is not int or not 1024 <= n["port"] <= 65535 or n["port"] == 9105:
-            raise ValueError("Node port must be unprivileged and not exporter port 9105")
+        if type(n.get("port")) is not int or not 1024 <= n["port"] <= 65535 or n["port"] == exporter_port:
+            raise ValueError("Node port must be unprivileged and not exporter port")
         if type(n.get("enabled")) is not bool or type(n.get("published")) is not bool:
             raise ValueError("enabled/published must be boolean")
         if type(n.get("priority")) is not int or not 0 <= n["priority"] <= 999:

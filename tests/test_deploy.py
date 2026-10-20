@@ -1,5 +1,6 @@
 from pathlib import Path
 import io
+import hashlib
 import json
 import tempfile
 import unittest
@@ -11,6 +12,22 @@ from tests.helpers import fixture
 
 
 class DeployTests(unittest.TestCase):
+    def test_reviewed_coexistence_requires_fingerprint_and_disjoint_ports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "legacy.json"
+            path.write_text(json.dumps({"inbounds": [{"listen_port": 65032}]}))
+            m = fixture()
+            self.assertTrue(deploy.legacy_issues(m, path))
+            m["legacy_config_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            m["exporter_port"] = 9106
+            self.assertEqual(deploy.legacy_issues(m, path), [])
+            self.assertIn("127.0.0.1:9106", deploy.nginx_config(m, True))
+            self.assertIn("--port 9106", deploy.unit_files(m)["spark-web.service"])
+            m["nodes"][0]["port"] = 65032
+            self.assertTrue(deploy.legacy_issues(m, path))
+            path.write_text("{}")
+            self.assertTrue(deploy.legacy_issues(m, path))
+
     def test_health_reads_accounting_and_rejects_stale(self):
         for stale in (False, True):
             with patch.object(deploy, "check_cert"), patch.object(deploy, "active", return_value=True), \
