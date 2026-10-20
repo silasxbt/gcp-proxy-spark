@@ -21,7 +21,8 @@ def main():
         if p.is_symlink() or p.suffix in (".pem", ".key", ".pyc") or "__pycache__" in p.parts:
             errors.append(f"Private/binary/symlink path: {filename}")
             continue
-        text = p.read_text()
+        # Audit the actual index that will be committed, not an unstaged replacement.
+        text = subprocess.check_output(["git", "show", ":" + filename], text=True)
         for pattern in PATTERNS:
             if re.search(pattern, text):
                 errors.append(f"Potential secret: {filename} (content suppressed)")

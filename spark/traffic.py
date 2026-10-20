@@ -156,7 +156,13 @@ def collect(manifest, path, once=False):
             ensure_counters(m)
             values, generation = snapshot(m)
             old = json.loads(path.read_text()) if path.exists() else None
-            atomic_json(path, advance(old, m, values, generation, time.time()), 0o644)
+            state = advance(old, m, values, generation, time.time())
+            try:
+                state["service_active"] = subprocess.run(["systemctl", "is-active", "--quiet", "spark-proxy"],
+                                                        capture_output=True, timeout=3).returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
+                state["service_active"] = None
+            atomic_json(path, state, 0o644)
             if once:
                 return
             time.sleep(10)

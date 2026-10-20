@@ -45,6 +45,8 @@ python3 -m venv .venv
 .venv/bin/python -m tests.native_check --connections
 ```
 
+本地页面预览：`.venv/bin/python -m tests.preview`，打开 `http://127.0.0.1:9187/traffic`；仅使用模拟数据。
+
 下载只使用 `spark/versions.json` 锁定的 GitHub 官方发行包与 SHA256；摘要不匹配会拒绝使用。macOS arm64 支持开发验证，不支持服务器部署。
 
 ## 让 Agent 部署

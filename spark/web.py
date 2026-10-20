@@ -12,14 +12,6 @@ from .traffic import public_report
 
 
 def handler(manifest, state_path, status=None):
-    def service_status():
-        if status is not None:
-            return status()
-        try:
-            return subprocess.run(["systemctl", "is-active", "--quiet", "spark-proxy"], timeout=3).returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-
     class Handler(BaseHTTPRequestHandler):
         server_version = "Spark"
         sys_version = ""
@@ -74,7 +66,9 @@ def handler(manifest, state_path, status=None):
                         self.reply(400, b'{"error":"invalid format"}')
                         return
                 state = json.loads(Path(state_path).read_text())
-                report = public_report(state, m, service_active=service_status())
+                # The unprivileged web process never needs access to system D-Bus.
+                # Root collector samples the service state alongside the counters.
+                report = public_report(state, m, service_active=status() if status else state.get("service_active"))
                 if not is_sub:
                     self.reply(200, json.dumps(report).encode())
                 elif report["stale"] or report["service_active"] is not True:
