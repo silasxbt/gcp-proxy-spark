@@ -60,6 +60,16 @@ def inspect(m):
         issues.append("Unowned current release")
     if NGINX.exists() and not NGINX.read_text().startswith(MARKER):
         issues.append("Unowned nginx configuration")
+    if Path(CERT).parent.exists() and not (BASE / "OWNED").exists():
+        issues.append("Existing ACME certificate name is not owned by Spark")
+    if shutil.which("nft"):
+        from .traffic import nft_json
+        try:
+            table = nft_json()
+            if table and not any(x.get("table", {}).get("comment") == "gcp-proxy-spark-owned-v1" for x in table["nftables"]):
+                issues.append("Unowned nftables table proxy_spark")
+        except RuntimeError as error:
+            issues.append(str(error))
     for unit in UNITS:
         p = SYSTEMD / unit
         if p.exists() and not p.read_text().startswith(MARKER):
@@ -205,6 +215,17 @@ def health(m):
         raise RuntimeError("Accounting/service is not healthy")
 
 
+def wait_healthy(m):
+    for attempt in range(10):
+        try:
+            health(m)
+            return
+        except Exception:
+            if attempt == 9:
+                raise
+            time.sleep(2)
+
+
 def apply(m, email, confirmed=False, network_confirmed=False):
     if not confirmed or not network_confirmed:
         raise ValueError("Require --confirm and --network-confirmed after reviewing plan, GCP ingress and fixed public IP")
@@ -229,6 +250,7 @@ def _apply(m, email):
     old_m = load(old / "manifest.json") if old else None
     if old_m and old_m["address"] != m["address"]:
         raise ValueError("IP change requires separate certificate migration; not supported in-place")
+    write_text(BASE / "OWNED", MARKER)
     STATE.mkdir(parents=True, exist_ok=True, mode=0o755)
     (STATE / "acme").mkdir(exist_ok=True, mode=0o755)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -282,14 +304,7 @@ def _apply(m, email):
         run(["systemctl", "restart", "spark-proxy", "spark-traffic", "spark-web"])
         run(["systemctl", "start", "spark-renew.timer", "spark-cert-check.timer"])
         run(["systemctl", "reload", "nginx"])
-        for attempt in range(10):
-            try:
-                health(m)
-                break
-            except Exception:
-                if attempt == 9:
-                    raise
-                time.sleep(2)
+        wait_healthy(m)
         return {"release": release.name, "status": "healthy", "previous": old.name if old else None}
     except Exception:
         # Keep failed release + private backups for diagnosis; don't delete data.
@@ -315,6 +330,8 @@ def _apply(m, email):
             run(["systemctl", "reload", "nginx"])
         else:
             run(["systemctl", "stop", "nginx"])
+        if old:
+            wait_healthy(old_m)
         raise
 
 
@@ -342,8 +359,7 @@ def rollback(release_name, confirmed=False):
             run(["systemctl", "daemon-reload"])
             run(["systemctl", "restart", "spark-proxy", "spark-web", "spark-traffic"])
             run(["systemctl", "reload", "nginx"])
-            time.sleep(2)
-            health(load(target / "manifest.json"))
+            wait_healthy(load(target / "manifest.json"))
         except Exception:
             switch(old)
             for unit in UNITS:
@@ -352,12 +368,19 @@ def rollback(release_name, confirmed=False):
             run(["systemctl", "daemon-reload"])
             run(["systemctl", "restart", "spark-proxy", "spark-web", "spark-traffic"])
             run(["systemctl", "reload", "nginx"])
+            wait_healthy(load(old / "manifest.json"))
             raise
 
 
 def uninstall(confirmed=False):
     if not confirmed or os.geteuid() != 0 or not (CURRENT / "OWNED").exists():
         raise ValueError("Root, owned installation and --confirm required")
+    with (BASE / ".deploy.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return _uninstall()
+
+
+def _uninstall():
     # No recursive deletion; preserve releases, certificates and historical data.
     for unit in UNITS:
         p = SYSTEMD / unit
@@ -365,6 +388,10 @@ def uninstall(confirmed=False):
             raise ValueError("Refusing to remove unowned unit")
     if NGINX.exists() and not NGINX.read_text().startswith(MARKER):
         raise ValueError("Refusing to remove unowned nginx config")
+    if active("spark-traffic"):
+        run(["systemctl", "stop", "spark-traffic"])
+        from .traffic import collect
+        collect(CURRENT / "manifest.json", STATE / "traffic.json", once=True)
     for unit in UNITS:
         run(["systemctl", "disable", "--now", unit])
         (SYSTEMD / unit).unlink(missing_ok=True)

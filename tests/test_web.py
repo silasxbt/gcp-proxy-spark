@@ -51,6 +51,7 @@ class WebTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as e:
             self.get("/sub/invalid?format=clash")
         self.assertEqual(e.exception.code, 404)
+        e.exception.close()
 
     def test_head_has_content_length_no_body(self):
         with self.get(self.sub, "HEAD") as r:
@@ -69,6 +70,7 @@ class WebTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as e:
             self.get(self.sub)
         self.assertEqual(e.exception.code, 503)
+        e.exception.close()
 
     def test_stale_blocks_subscription_but_public_reports(self):
         s = json.loads(self.state.read_text())
@@ -77,6 +79,7 @@ class WebTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as e:
             self.get(self.sub)
         self.assertEqual(e.exception.code, 503)
+        e.exception.close()
         with self.get("/api/traffic") as r:
             self.assertTrue(json.load(r)["stale"])
 
@@ -85,3 +88,13 @@ class WebTests(unittest.TestCase):
             with self.subTest(suffix=suffix), self.assertRaises(HTTPError) as e:
                 self.get(self.sub + suffix)
             self.assertEqual(e.exception.code, code)
+            e.exception.close()
+
+    def test_over_quota_does_not_disable_subscription(self):
+        s = json.loads(self.state.read_text())
+        for month in s["months"].values():
+            for key in month["counters"]:
+                month["counters"][key] = self.m["quota_bytes"] + 100
+        atomic_json(self.state, s)
+        with self.get(self.sub) as r:
+            self.assertEqual(r.status, 200)

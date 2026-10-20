@@ -64,7 +64,15 @@ def main():
             deploy.rollback(first["release"], confirmed=True)
             assert deploy.CURRENT.resolve() == old_release
             print("PASS real explicit rollback", flush=True)
-            with patch.object(deploy, "health", side_effect=RuntimeError("injected health failure")):
+            real_health = deploy.health
+            failures = 0
+            def broken_candidate(manifest):
+                nonlocal failures
+                failures += 1
+                if failures <= 10:
+                    raise RuntimeError("injected candidate health failure")
+                return real_health(manifest)
+            with patch.object(deploy, "health", side_effect=broken_candidate):
                 try:
                     deploy._apply(updated, "test@example.com")
                 except RuntimeError:
