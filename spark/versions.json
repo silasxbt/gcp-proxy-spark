@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "singbox": {
+    "version": "1.13.19",
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-darwin-arm64.tar.gz",
+        "digest": "sha256:23bf191906f2dfc9f00e9f0092f274f3426ba9377327e903ff94e636b64d0997",
+        "name": "sing-box-1.13.19-darwin-arm64.tar.gz"
+      },
+      {
+        "browser_download_url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-amd64.tar.gz",
+        "digest": "sha256:ef88a9e577d474210867bd708933d042e9b70106529df2656182c9db90106aa1",
+        "name": "sing-box-1.13.19-linux-amd64.tar.gz"
+      },
+      {
+        "browser_download_url": "https://github.com/SagerNet/sing-box/releases/download/v1.13.19/sing-box-1.13.19-linux-arm64.tar.gz",
+        "digest": "sha256:7fe3597a95a3c5ad67477b1d7653b9ce097e0be7c676758eba1fcf558f353d57",
+        "name": "sing-box-1.13.19-linux-arm64.tar.gz"
+      }
+    ]
+  },
+  "mihomo": {
+    "version": "1.19.32",
+    "assets": [
+      {
+        "browser_download_url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-darwin-arm64-v1.19.32.gz",
+        "digest": "sha256:3312a6780652c622890fd4357c6a853bbf865464fd047ac7b7f52dab8de18652",
+        "name": "mihomo-darwin-arm64-v1.19.32.gz"
+      },
+      {
+        "browser_download_url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-amd64-compatible-v1.19.32.gz",
+        "digest": "sha256:ba3ce607747a07f948fc35780e108a4a7c7f552a38b9bd4d115f313ebcb89c20",
+        "name": "mihomo-linux-amd64-compatible-v1.19.32.gz"
+      },
+      {
+        "browser_download_url": "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-arm64-v1.19.32.gz",
+        "digest": "sha256:9dd862e28b46ff7d775f169cceebc28deccaa0a9e804237d421cd2571e0caba0",
+        "name": "mihomo-linux-arm64-v1.19.32.gz"
+      }
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gcp-proxy-spark"
+version = "0.1.0"
+description = "Single-machine proxy subscriptions and transparent traffic accounting"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+dependencies = ["PyYAML==6.0.3"]
+
+[project.scripts]
+spark = "spark.cli:main"
+
+[tool.setuptools.package-data]
+spark = ["assets/*", "versions.json"]
+
+[tool.setuptools.packages.find]
+include = ["spark*"]
