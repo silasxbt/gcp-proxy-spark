@@ -1,20 +1,17 @@
 """Conservative local-host installer. Never invokes gcloud or provisions resources."""
 from datetime import datetime, timezone
 import fcntl
-import hashlib
-import json
 import os
 from pathlib import Path
 import platform
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import time
 from urllib.request import build_opener, ProxyHandler
 
-from .core import CERT, KEY, VERSIONS, atomic_json, load, redacted_plan, selected, server_config
+from .core import CERT, atomic_json, load, selected, server_config
 from .download import fetch
 
 BASE = Path("/opt/gcp-proxy-spark")

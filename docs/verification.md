@@ -10,7 +10,21 @@
 - Linux CI：amd64/arm64 原生实连、network namespace 内真实 IPv4/IPv6 nftables 字节增量、计数表重建。
 - 生命周期 CI：临时 GitHub runner 上真实 systemd/Nginx 安装、升级、回退、故障恢复、续期 hook、保留数据卸载。CA 签发由测试替身完成，不是公开 ACME 验证。
 
-本地结果和 CI 最终状态在发布前更新；自动化工作流见 `.github/workflows/ci.yml`。失败的检查不能用说明文档替代。
+## 已通过结果
+
+| 环境 | 结果 |
+|---|---|
+| macOS arm64 / Python 3.14 | 33 项单元与 HTTP 测试；两种模式原生配置校验；2 客户端核心 × 5 协议共 10 条真实本机代理请求通过 |
+| Ubuntu 24.04 amd64 / Python 3.12 | 33 项测试、原生校验、10 条代理连接、真实 IPv4/IPv6 计数及计数表重建通过 |
+| Ubuntu 24.04 arm64 / Python 3.12 | 同上，全部通过 |
+| Ubuntu 24.04 amd64 生命周期 | 真实 systemd/Nginx 安装、升级、显式回退、注入故障后恢复旧服务、证书 deploy hook、保留数据卸载通过；签发 CA 为模拟 |
+| Agent 技能 | skill-creator 校验通过；授权边界和人工停止条件已列出 |
+| 发布检查 | Git 文件白名单、常见密钥模式、公共 IP 检查通过；仓库未包含生产凭证 |
+| 页面 | 内置浏览器已检查模拟数据页面，汇总、协议条形图和额度说明可见 |
+
+证据：[完整通过的 CI 运行](https://github.com/silasxbt/gcp-proxy-spark/actions/runs/39452295525)，测试代码基线 `c005604`。后续提交以对应 CI 状态为准。依赖准备脚本另通过 shell 语法检查；未用它改动任何生产机器。
+
+测试曾发现并修复受限网页进程查询系统服务状态失败、回退后未等待 HTTP 就绪的问题。当前由采集进程记录服务状态，回退同样等待健康检查。
 
 ## 未验证 / 必须现场验收
 

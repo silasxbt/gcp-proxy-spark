@@ -5,7 +5,7 @@ import re
 import subprocess
 
 ROOT_FILES = {"README.md", "LICENSE", "NOTICE.md", "AGENTS.md", "SECURITY.md", "pyproject.toml", ".gitignore"}
-ROOT_DIRS = {"spark", "tests", "docs", "skills", ".github"}
+ROOT_DIRS = {"spark", "tests", "docs", "skills", "scripts", ".github"}
 PATTERNS = [r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", r"gh[pousr]_[A-Za-z0-9]{30,}",
             r"AKIA[0-9A-Z]{16}", r"AIza[0-9A-Za-z_-]{35}", r'"type"\s*:\s*"service_account"',
             r"https?://[^\s]+/sub/[A-Za-z0-9_-]{32,}"]

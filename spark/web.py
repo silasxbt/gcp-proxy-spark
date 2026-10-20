@@ -3,8 +3,6 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
-import subprocess
-import time
 from urllib.parse import parse_qs, urlsplit
 
 from .core import load, subscription

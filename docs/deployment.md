@@ -21,6 +21,8 @@ gcloud compute ssh YOUR_INSTANCE --project YOUR_PROJECT --zone YOUR_ZONE --tunne
 
 ## 2. 准备环境（明确授权后）
 
+全新、尚未安装 Nginx 的专用机可使用 `sudo sh scripts/prepare-host.sh --confirm`。脚本拒绝已有代理、Spark 目录和网页端口冲突；只停下这次新装的默认 Nginx，并保留发行版默认站点链接。它不部署节点、不申请证书、不修改 GCP。已有依赖或上次准备中断时，按下面的手工流程核对，不删除目录来绕过检查。
+
 以下命令改变目标机。先确认是新部署专用机：
 
 ```sh
@@ -38,6 +40,8 @@ Ubuntu 22.04+/Debian 12+ 的系统 Python 可用。Python 库使用固定直接�
 安装 Nginx 可能自动启用发行版默认站点。**先检查是否仅是新安装的默认欢迎页**；确认无业务后，将 `/etc/nginx/sites-enabled/default` 移到管理员备份目录，再停止这次新装的 Nginx。不要删除其他网站，已有站点应改用另一台机器或人工设计共存方案。
 
 在仓库创建开发 venv 并 `pip install -e .`，运行 `.venv/bin/spark`。也可在目标机单独 venv 安装项目。不要把仓库放入生产服务路径后直接用 Git pull 影响运行：apply 会复制到独立 release。
+
+若 `spark` 不在 sudo 的 PATH，将手册中 `sudo spark` 替换为 `sudo /你的仓库绝对路径/.venv/bin/spark`，不要为了方便把整个虚拟环境改为全局可写。
 
 ## 3. 初始化与审阅
 

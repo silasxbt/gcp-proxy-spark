@@ -1,6 +1,5 @@
 """Validated manifest and structured server/client renderers. No production data."""
 import base64
-import copy
 import ipaddress
 import json
 import os

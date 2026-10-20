@@ -9,7 +9,6 @@ import platform
 import subprocess
 import tarfile
 import tempfile
-from urllib.request import Request, urlopen
 
 
 def fetch(tool, directory):
