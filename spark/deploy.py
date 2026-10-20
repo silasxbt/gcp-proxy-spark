@@ -1,6 +1,7 @@
 """Conservative local-host installer. Never invokes gcloud or provisions resources."""
 from datetime import datetime, timezone
 import fcntl
+import json
 import os
 from pathlib import Path
 import platform

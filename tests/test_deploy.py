@@ -1,4 +1,6 @@
 from pathlib import Path
+import io
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -9,6 +11,17 @@ from tests.helpers import fixture
 
 
 class DeployTests(unittest.TestCase):
+    def test_health_reads_accounting_and_rejects_stale(self):
+        for stale in (False, True):
+            with patch.object(deploy, "check_cert"), patch.object(deploy, "active", return_value=True), \
+                 patch.object(deploy, "run"), patch.object(deploy, "build_opener") as opener:
+                opener.return_value.open.return_value = io.BytesIO(json.dumps({"stale": stale, "service_active": True}).encode())
+                if stale:
+                    with self.assertRaises(RuntimeError):
+                        deploy.health(fixture())
+                else:
+                    deploy.health(fixture())
+
     def test_refuses_unconfirmed_apply(self):
         with self.assertRaises(ValueError):
             deploy.apply(fixture(), "test@example.com")
