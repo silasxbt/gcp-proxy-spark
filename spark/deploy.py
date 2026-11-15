@@ -1,4 +1,4 @@
-"""Conservative local-host installer. Never invokes gcloud or provisions resources."""
+"""Conservative local-host installer. Cloud-agnostic: never invokes cloud CLIs or provisions resources."""
 from datetime import datetime, timezone
 import fcntl
 import hashlib
@@ -24,6 +24,7 @@ SYSTEMD = Path("/etc/systemd/system")
 UNITS = ("spark-proxy.service", "spark-web.service", "spark-traffic.service",
          "spark-renew.service", "spark-renew.timer", "spark-cert-check.service", "spark-cert-check.timer")
 MARKER = "# Managed by gcp-proxy-spark v1"
+TABLE_NAME = "proxy_spark"
 
 
 def legacy_issues(m, path=Path("/etc/s-box/sb.json")):
@@ -38,6 +39,101 @@ def legacy_issues(m, path=Path("/etc/s-box/sb.json")):
         return ["Cannot inspect reviewed legacy listener configuration"]
     required = {80, 443, m.get("exporter_port", 9105)} | {n["port"] for n in selected(m)}
     return ["Legacy listener configuration overlaps Spark ports"] if legacy_ports & required else []
+
+
+def required_ingress(m):
+    return [("tcp", 80), ("tcp", 443)] + [("udp" if n["protocol"] in ("tuic", "hysteria2") else "tcp", n["port"])
+                                         for n in selected(m)]
+
+
+def _ports(spec):
+    out = set()
+    for part in spec.split(","):
+        low, _, high = part.partition(":")
+        out |= set(range(int(low), int(high or low) + 1))
+    return out
+
+
+def iptables_verdict(save_text, proto, port):
+    """First-match verdict of filter/INPUT for a NEW packet from any source: allowed, blocked or unknown."""
+    import shlex
+    policy, rules, table = "ACCEPT", [], None
+    for line in save_text.splitlines():
+        if line.startswith("*"):
+            table = line[1:].strip()
+        elif table == "filter" and line.startswith(":INPUT "):
+            policy = line.split()[1]
+        elif table == "filter" and line.startswith("-A INPUT "):
+            rules.append(shlex.split(line)[2:])
+    uncertain = False
+    for tokens in rules:
+        rule_proto, dports, states, target, other = None, None, None, None, False
+        i = 0
+        while i < len(tokens):
+            key = tokens[i]
+            value = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if key in ("-p", "--protocol"):
+                rule_proto = value
+            elif key in ("--dport", "--dports", "--destination-port", "--destination-ports"):
+                dports = _ports(value)
+            elif key in ("--state", "--ctstate"):
+                states = set(value.split(","))
+            elif key in ("-j", "--jump"):
+                target = value
+            elif key == "-m" or key in ("--comment", "--reject-with"):
+                pass
+            else:
+                other = True
+                i += 1 if key.startswith("!") else 0
+            i += 2
+        if rule_proto not in (None, "all", proto) or (dports is not None and port not in dports) \
+                or (states is not None and "NEW" not in states):
+            continue
+        if other:
+            # Interface/source/negated selectors: cannot decide statically; a blocking rule makes ACCEPT uncertain.
+            uncertain |= target in ("REJECT", "DROP")
+            continue
+        if target == "ACCEPT":
+            return "unknown" if uncertain else "allowed"
+        if target in ("REJECT", "DROP"):
+            return "blocked"
+        return "unknown"  # Jump to a user chain (e.g. ufw) or another target.
+    if policy == "ACCEPT":
+        return "unknown" if uncertain else "allowed"
+    return "blocked" if policy == "DROP" else "unknown"
+
+
+def host_firewall(m):
+    """Detect host rules that would block planned ingress. Only reports; never adds ACCEPT rules."""
+    import ipaddress
+    issues, warnings = [], []
+    tool = "ip6tables-save" if ipaddress.ip_address(m["address"]).version == 6 else "iptables-save"
+    if shutil.which(tool):
+        try:
+            text = run([tool, "-t", "filter"]).stdout
+        except subprocess.CalledProcessError:
+            text = None
+            warnings.append(f"Cannot read {tool}; verify host firewall manually")
+        if text is not None:
+            verdicts = {f"{proto}:{port}": iptables_verdict(text, proto, port) for proto, port in required_ingress(m)}
+            blocked = sorted(k for k, v in verdicts.items() if v == "blocked")
+            unknown = sorted(k for k, v in verdicts.items() if v == "unknown")
+            if blocked:
+                issues.append("Host firewall (iptables INPUT) rejects: " + ", ".join(blocked)
+                              + "; allow only these ports with operator authorization (see docs/deployment.md)")
+            if unknown:
+                warnings.append("Host firewall verdict unknown (user chains such as ufw): " + ", ".join(unknown))
+    if shutil.which("nft"):
+        try:
+            doc = json.loads(run(["nft", "-j", "list", "ruleset"]).stdout)
+        except (subprocess.CalledProcessError, ValueError):
+            doc = {"nftables": []}
+        for x in doc.get("nftables", []):
+            c = x.get("chain", {})
+            if c.get("hook") == "input" and c.get("policy") == "drop" and c.get("table") != TABLE_NAME \
+                    and c.get("table") != "filter":
+                warnings.append(f'nftables chain {c.get("family")} {c.get("table")} {c.get("name")} has policy drop; verify planned ports are accepted')
+    return issues, warnings
 
 
 def run(args, **kw):
@@ -108,8 +204,11 @@ def inspect(m):
                              or (port in allowed and active("spark-proxy")))
             if not owned:
                 issues.append(f"Occupied port: {port}; no process will be stopped automatically")
-    return {"ready": not issues, "issues": issues, "network": "GCP ingress/IAM and external reachability must be checked from operator machine",
-            "required_ingress": ["tcp:80", "tcp:443"] + [f'{"udp" if n["protocol"] in ("tuic", "hysteria2") else "tcp"}:{n["port"]}' for n in selected(m)]}
+    firewall_issues, warnings = host_firewall(m)
+    issues.extend(firewall_issues)
+    return {"ready": not issues, "issues": issues, "warnings": warnings,
+            "network": "Cloud ingress (GCP firewall / AWS security group / OCI security list or NSG), fixed public IP and external reachability must be checked from operator machine",
+            "required_ingress": [f"{proto}:{port}" for proto, port in required_ingress(m)]}
 
 
 def nginx_config(m, tls):
@@ -241,7 +340,7 @@ def wait_healthy(m):
 
 def apply(m, email, confirmed=False, network_confirmed=False):
     if not confirmed or not network_confirmed:
-        raise ValueError("Require --confirm and --network-confirmed after reviewing plan, GCP ingress and fixed public IP")
+        raise ValueError("Require --confirm and --network-confirmed after reviewing plan, cloud and host ingress and fixed public IP")
     if os.geteuid() != 0:
         raise ValueError("Run deployment as root on the target machine")
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):

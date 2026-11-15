@@ -18,6 +18,7 @@
 
 ```markdown
 ## 目标机器
+- 云厂商: GCP | AWS（未验证） | Oracle OCI（未验证） | 其他
 - 连接方式: gcloud-iap | ssh
 - gcloud: 项目=… 区域/可用区=… 实例=…        # 选 gcloud 时填写
 - ssh: Host 别名=…（~/.ssh/config 中已配置）  # 选 ssh 时填写
@@ -33,20 +34,23 @@
 
 ## 预先授权（未勾选的一律视为未授权）
 - [ ] 在专用新机运行 scripts/prepare-host.sh 安装依赖
-- [ ] 为该实例创建或修改 GCP 防火墙规则，只放行计划中列出的端口和网络标签
+- [ ] 为该实例修改云端入站规则（GCP 防火墙 / AWS Security Group / OCI Security List 或 NSG），只放行计划中列出的端口
+- [ ] 主机防火墙（例如 Oracle Ubuntu 的 iptables）拦截时，只放行计划中列出的端口并持久化
 - [ ] 计划确认后直接 apply，部署完成后再汇报
 - [ ] 部署完成后在私人对话里给出订阅链接
 ```
 
 ## Agent 执行顺序
 
-1. **接入**：确认 `gcloud auth list`、当前项目或 SSH 主机指纹，核对实例身份。不读取、不打印令牌和私钥。
-2. **只读检查**：查看系统、架构、已有服务、监听端口、Nginx、nftables 和 `/etc/s-box`；从操作者一侧检查 IP 是否固定，以及 GCP 防火墙规则和网络标签。
+1. **接入**：确认 `gcloud auth list`、当前项目或 SSH 主机指纹，核对实例身份。AWS/Oracle 用交接单中的 SSH 别名，不读取云账号密钥。不读取、不打印令牌和私钥。
+2. **只读检查**：查看系统、架构、已有服务、监听端口、Nginx、nftables 和 `/etc/s-box`；从操作者一侧检查 IP 是否固定，以及云端入站规则；`inspect` 会额外报告主机防火墙拦截。
 3. **生成计划**：在机器上的私有目录 `spark init`，然后运行 `spark plan` 和 `sudo spark inspect`，把结果整理成一份计划。计划列出：节点与端口、需要放行的入站规则、需要安装的依赖、证书申请、重启影响、交接单中已授权和未授权的动作。不展示凭证。
 4. **唯一确认**：等用户回复确认。未授权的动作（例如防火墙改动）在这一步一并请求授权，不在后续阶段另行追问。
-5. **执行**：准备依赖，在已授权时放行防火墙，从另一台机器核验网络可达后执行 `apply --confirm --network-confirmed`。任何一步失败都按部署技能处理，不扩大操作范围。
+5. **执行**：准备依赖，在已授权时放行云端和主机防火墙（方法见 deployment.md 的云厂商差异一节），从另一台机器核验网络可达后执行 `apply --confirm --network-confirmed`。任何一步失败都按部署技能处理，不扩大操作范围。
 6. **验收**：检查 systemd 服务，从外部访问 HTTPS 的 `/traffic` 并确认无证书警告，订阅接口返回 200，用 Mihomo 或 sing-box 核心对每个节点发起真实请求（TCP 和 UDP 分开验证），确认流量出现增量，演练续期（`--dry-run`，会触发短暂重启，须已获授权）。
 7. **报告**：说明 release ID、已验证项、需要用户在真机上验收的项（Shadowrocket 标注“真机待验证”），以及回退命令。只有交接单授权时才在私人对话中给出订阅链接。
+
+AWS 与 Oracle 路径尚未真机验证。部署中发现与文档不符时，Agent 应保留证据、停止，并整理成可提交到 [Issues](https://github.com/silasxbt/gcp-proxy-spark/issues) 的脱敏报告。
 
 ## 给 Agent 的开场语
 

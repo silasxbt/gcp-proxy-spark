@@ -120,3 +120,50 @@ class DeployTests(unittest.TestCase):
 
     def test_failed_health_restores_files_and_release(self):
         self.transaction(True)
+
+
+ORACLE_UBUNTU = """*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p icmp -j ACCEPT
+-A INPUT -i lo -j ACCEPT
+-A INPUT -p udp -m udp --sport 123 -j ACCEPT
+-A INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT
+-A INPUT -j REJECT --reject-with icmp-host-prohibited
+-A FORWARD -j REJECT --reject-with icmp-host-prohibited
+COMMIT
+"""
+
+
+class HostFirewallTests(unittest.TestCase):
+    def test_oracle_default_rejects_until_ports_opened(self):
+        self.assertEqual(deploy.iptables_verdict(ORACLE_UBUNTU, "tcp", 22), "allowed")
+        self.assertEqual(deploy.iptables_verdict(ORACLE_UBUNTU, "tcp", 443), "blocked")
+        self.assertEqual(deploy.iptables_verdict(ORACLE_UBUNTU, "udp", 24445), "blocked")
+        opened = ORACLE_UBUNTU.replace("-A INPUT -j REJECT",
+            "-A INPUT -p tcp -m state --state NEW -m multiport --dports 80,443,24443:24444 -j ACCEPT\n"
+            "-A INPUT -p udp -m state --state NEW -m multiport --dports 24445:24446 -j ACCEPT\n-A INPUT -j REJECT")
+        for proto, port in (("tcp", 80), ("tcp", 24444), ("udp", 24446)):
+            self.assertEqual(deploy.iptables_verdict(opened, proto, port), "allowed")
+        self.assertEqual(deploy.iptables_verdict(opened, "tcp", 24445), "blocked")
+
+    def test_empty_policy_drop_and_user_chain(self):
+        self.assertEqual(deploy.iptables_verdict("*filter\n:INPUT ACCEPT [0:0]\nCOMMIT\n", "tcp", 443), "allowed")
+        self.assertEqual(deploy.iptables_verdict("*filter\n:INPUT DROP [0:0]\nCOMMIT\n", "tcp", 443), "blocked")
+        ufw = "*filter\n:INPUT DROP [0:0]\n-A INPUT -j ufw-before-input\nCOMMIT\n"
+        self.assertEqual(deploy.iptables_verdict(ufw, "tcp", 443), "unknown")
+        narrow = "*filter\n:INPUT ACCEPT [0:0]\n-A INPUT -i lo -j ACCEPT\n-A INPUT ! -i eth9 -j DROP\nCOMMIT\n"
+        self.assertEqual(deploy.iptables_verdict(narrow, "tcp", 443), "unknown")
+
+    def test_inspect_reports_blocked_ports(self):
+        m = fixture()
+        m["address"] = "203.0.113.10"
+        with patch("spark.deploy.shutil.which", side_effect=lambda x: x == "iptables-save"), \
+             patch("spark.deploy.run", return_value=SimpleNamespace(stdout=ORACLE_UBUNTU)):
+            issues, warnings = deploy.host_firewall(m)
+        self.assertEqual(len(issues), 1)
+        self.assertIn("tcp:443", issues[0])
+        self.assertIn("udp:24445", issues[0])
+        self.assertEqual(warnings, [])

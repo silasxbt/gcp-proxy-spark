@@ -1,6 +1,6 @@
 ---
 name: gcp-proxy-deploy
-description: Deploy, inspect, upgrade or roll back gcp-proxy-spark on an existing Debian/Ubuntu GCP or SSH server. Use for this repository's single-machine subscription and traffic services, not VM provisioning or adopting another proxy installation.
+description: Deploy, inspect, upgrade or roll back gcp-proxy-spark on an existing Debian/Ubuntu server (GCP verified; AWS and Oracle Cloud documented but unverified) over SSH or gcloud. Use for this repository's single-machine subscription and traffic services, not VM provisioning or adopting another proxy installation.
 ---
 
 # Spark 部署技能
@@ -10,7 +10,7 @@ description: Deploy, inspect, upgrade or roll back gcp-proxy-spark on an existin
 ## 工作流
 
 1. 读取用户填写的交接单（`docs/agent-handoff.md` 模板）；缺项一次性列出提问，不逐条追问。确认请求是检查还是变更；接入已有机器并核对目标身份。gcloud/IAP 或已有 SSH 均可，不读取/打印账号私钥与 access token。
-2. 只读检查系统、已有服务、监听端口、IP 稳定性、GCP 网络规则。发现 `/etc/s-box`、业务网站或冲突端口就停止，不接管，不猜测哪些旧服务可以关闭。
+2. 只读检查系统、已有服务、监听端口、IP 稳定性、云端入站规则（GCP/AWS/OCI）与 `inspect` 报告的主机防火墙。发现 `/etc/s-box`、业务网站或冲突端口就停止，不接管，不猜测哪些旧服务可以关闭。
 3. 让用户选择主要客户端 sing-box/Shadowrocket 或 Mihomo 系 Clash；按锁定能力表生成，不能把 Hysteria2/普通 AnyTLS 一律排除。选择 TLS 1.3 Reality 握手站点需用户确认可用/允许使用。
 4. 首次生成仓库外私密 manifest；升级沿用当前 manifest。运行 plan 与 inspect，展示节点增删、端口、依赖安装、证书申请和短暂重启影响，不展示凭证。模式变化须展示差异。
 5. 明确授权后准备依赖并 apply；只有真正完成外部网络/IP 核验后才使用 `--network-confirmed`。云资源创建、IAM、云防火墙变更不属于 apply 的默认权限。

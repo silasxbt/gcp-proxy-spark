@@ -59,6 +59,8 @@ python3 -m venv .venv
 
 整个流程中人工只需三步：登录并填交接单、审阅一次计划并确认、在客户端导入订阅。
 
+适用于 GCP（已验证），AWS 与 Oracle Cloud 按公开资料整理了差异与检查，**尚未真机验证**，见 [部署手册的云厂商差异](docs/deployment.md#云厂商差异aws--oracle-未经验证)；遇到问题请提交 [Issue](https://github.com/silasxbt/gcp-proxy-spark/issues)。
+
 Agent 使用现有 SSH 或 gcloud/IAP 连接，不把登录凭证放进仓库。登录、IAM、IP 固定、云防火墙和证书挑战失败等人工环节都有停止条件。详见 [部署手册](docs/deployment.md)。
 
 目标机器准备依赖后，核心流程如下；所有私密文件放在仓库外：

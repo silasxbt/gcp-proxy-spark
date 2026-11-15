@@ -2,6 +2,30 @@
 
 本工具只在**已有、专用的 Debian/Ubuntu 主机**本地安装。远程连接由操作者或 Agent 完成。已有 `/etc/s-box`、其他 Nginx 站点、端口占用都应停止，不自动覆盖。不要在当前两台生产机器上试跑安装验收。
 
+## 云厂商差异（AWS / Oracle 未经验证）
+
+部署代码不调用任何云 CLI，也不读取云元数据。只要是 Debian/Ubuntu、amd64/arm64、有固定公网 IP、可以 SSH 登录的 VM 都适用。只有 GCP 经过实测；**AWS 与 Oracle Cloud 的说明整理自官方文档和公开资料，尚未真机验证**。遇到问题请到 [Issues](https://github.com/silasxbt/gcp-proxy-spark/issues) 提交（附 `spark inspect` 输出，先去掉 IP 与凭证）。
+
+| 项目 | GCP GCE（已验证） | AWS EC2 / Lightsail（未验证） | Oracle OCI（未验证） |
+|---|---|---|---|
+| 固定公网 IP | 静态外部 IP | Elastic IP（Lightsail 为 Static IP）；默认公网 IP 停机后会变 | Reserved Public IP；临时 IP 在实例删除后释放 |
+| 云端入站 | VPC 防火墙规则 + 网络标签 | Security Group（Lightsail 为实例防火墙） | Security List 或 NSG，有状态规则 |
+| 主机防火墙 | 默认镜像无拦截 | Ubuntu/Debian AMI 默认无拦截 | **Ubuntu 镜像自带 iptables，默认拒绝除 22 以外的入站**，需另外放行 |
+| 支持的镜像 | Debian / Ubuntu | Ubuntu / Debian；Amazon Linux 不支持 | Ubuntu；Oracle Linux 不支持 |
+| arm64 | Tau T2A 等 | Graviton | Ampere A1 |
+| 出口流量 | `quota_bytes` 默认 200 GB 参考额度 | 按量收费，按需调整 `quota_bytes` | 每月免费额度较大，按需调整 `quota_bytes` |
+
+`spark inspect` 会读取 iptables 的 INPUT 链。如果计划中的端口会被 REJECT/DROP，检查不通过；遇到 ufw 等自定义链无法判断时，只在 `warnings` 中提示。工具**不会自动添加放行规则**。获得授权后（例如交接单勾选），操作者可以只放行计划中的端口，以 Oracle Ubuntu 镜像为例：
+
+```sh
+# 在 REJECT 规则之前插入；端口取自 inspect 输出的 required_ingress
+sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m multiport --dports 80,443,24443,24444 -j ACCEPT
+sudo iptables -I INPUT 5 -p udp -m state --state NEW -m multiport --dports 24445,24446 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+插入位置以 `sudo iptables -L INPUT --line-numbers` 的实际输出为准，不要清空或重写已有规则。IPv6 地址部署时改用 `ip6tables`。
+
 ## 1. 接入与只读检查
 
 ### 人工审阅的并行部署例外
@@ -15,7 +39,7 @@
 云防火墙变更必须另获明确授权，只放行目标实例的新端口。
 部署后再次比对旧配置摘要和 PID。面板和计数仅覆盖 Spark 新分组，旧节点仍由原系统统计。
 
-普通 SSH：使用已有 SSH 配置、私钥或系统代理，先核对目标主机指纹。GCP/IAP：
+AWS/Oracle 使用普通 SSH（Oracle Ubuntu 默认用户为 `ubuntu`，AWS 视 AMI 而定），也可以用操作者自己已有的 SSM/Bastion 会话。普通 SSH：使用已有 SSH 配置、私钥或系统代理，先核对目标主机指纹。GCP/IAP：
 
 ```sh
 gcloud auth list
@@ -26,7 +50,7 @@ gcloud compute ssh YOUR_INSTANCE --project YOUR_PROJECT --zone YOUR_ZONE --tunne
 
 不要在命令行粘贴 token，不读取服务账号 JSON 内容给聊天。需重新登录、缺少 IAP/OS Login/IAM 权限时停下，请用户处理。不替用户创建实例或修改 IAM。
 
-在目标机检查：`cat /etc/os-release`、`uname -m`、`ss -lntup`、已有 systemd 服务、Nginx 配置、系统防火墙。操作者还须检查 GCP 的网络规则与目标标签：TCP 80/443，以及 manifest 中启用节点的 TCP/UDP 端口。项目只添加**计数规则**，不会自动添加 ACCEPT 规则，不会修改 GCP 防火墙。
+在目标机检查：`cat /etc/os-release`、`uname -m`、`ss -lntup`、已有 systemd 服务、Nginx 配置、系统防火墙。操作者还须检查云端入站规则（GCP 防火墙与网络标签、AWS Security Group、OCI Security List/NSG）：TCP 80/443，以及 manifest 中启用节点的 TCP/UDP 端口。项目只添加**计数规则**，不会自动添加 ACCEPT 规则，不会修改任何云防火墙。
 
 确认公网 IP 稳定且属于该 VM；动态 IP 改变会同时破坏 IP 证书和订阅地址。固定 IP 的操作和可能费用由用户决定。
 
