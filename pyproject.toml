@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gcp-proxy-spark"
-version = "0.1.0"
+version = "0.0.1"
 description = "Single-machine proxy subscriptions and transparent traffic accounting"
 requires-python = ">=3.10"
 license = "GPL-3.0-only"
